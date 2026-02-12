@@ -1,0 +1,53 @@
+name: Daily AI Digest Release
+
+on:
+  schedule:
+    # Run near 11:00 AM America/Los_Angeles across DST by checking local hour in the job.
+    - cron: "0 18 * * *" # 11:00 AM PST
+    - cron: "0 19 * * *" # 11:00 AM PDT
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip unless it's 11 AM PT
+        run: |
+          LOCAL_HOUR=$(TZ=America/Los_Angeles date +%H)
+          if [ "$LOCAL_HOUR" != "11" ]; then
+            echo "Not 11 AM Pacific, skipping. Current PT hour: $LOCAL_HOUR"
+            exit 0
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare release notes
+        id: prep
+        run: |
+          DATE=$(date -u +"%Y-%m-%d")
+          TAG="daily-${DATE}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "name=AI News Daily - ${DATE}" >> "$GITHUB_OUTPUT"
+
+          echo "# AI News Daily - ${DATE}" > release-notes.md
+          if [ -f "hn/${DATE}-digest.md" ]; then
+            cat "hn/${DATE}-digest.md" >> release-notes.md
+          else
+            echo "Digest file not found for ${DATE} yet." >> release-notes.md
+          fi
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.prep.outputs.tag }}"
+          TITLE="${{ steps.prep.outputs.name }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TITLE" --notes-file release-notes.md
+          else
+            gh release create "$TAG" --title "$TITLE" --notes-file release-notes.md
+          fi
